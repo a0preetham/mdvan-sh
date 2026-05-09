@@ -2,18 +2,14 @@ package main
 
 import (
 	"context"
-	encbase64 "encoding/base64"
-	"crypto/sha1"
-	"crypto/sha256"
 	"fmt"
-	"hash"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/u-root/u-root/pkg/core"
+	"github.com/u-root/u-root/pkg/core/base64"
 	"github.com/u-root/u-root/pkg/core/cat"
 	"github.com/u-root/u-root/pkg/core/chmod"
 	"github.com/u-root/u-root/pkg/core/cp"
@@ -22,6 +18,7 @@ import (
 	"github.com/u-root/u-root/pkg/core/mktemp"
 	"github.com/u-root/u-root/pkg/core/mv"
 	"github.com/u-root/u-root/pkg/core/rm"
+	"github.com/u-root/u-root/pkg/core/shasum"
 	"github.com/u-root/u-root/pkg/core/tar"
 	"github.com/u-root/u-root/pkg/core/touch"
 	"github.com/u-root/u-root/pkg/core/xargs"
@@ -30,19 +27,21 @@ import (
 )
 
 var commandBuilders = map[string]func() core.Command{
+	"base64": func() core.Command { return base64.New() },
 	"cat":    func() core.Command { return cat.New() },
 	"chmod":  func() core.Command { return chmod.New() },
 	"cp":     func() core.Command { return cp.New() },
-	"mkdir":  func() core.Command { return mkdir.New() },
-	"mv":     func() core.Command { return mv.New() },
-	"rm":     func() core.Command { return rm.New() },
-	"touch":  func() core.Command { return touch.New() },
-	"xargs":  func() core.Command { return xargs.New() },
 	"gzcat":  func() core.Command { return gzip.New("gzcat") },
 	"gzip":   func() core.Command { return gzip.New("gzip") },
 	"gunzip": func() core.Command { return gzip.New("gunzip") },
+	"mkdir":  func() core.Command { return mkdir.New() },
 	"mktemp": func() core.Command { return mktemp.New() },
+	"mv":     func() core.Command { return mv.New() },
+	"rm":     func() core.Command { return rm.New() },
+	"shasum": func() core.Command { return shasum.New() },
 	"tar":    func() core.Command { return tar.New() },
+	"touch":  func() core.Command { return touch.New() },
+	"xargs":  func() core.Command { return xargs.New() },
 }
 
 func wasiCoreutils(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
@@ -55,10 +54,6 @@ func wasiCoreutils(next interp.ExecHandlerFunc) interp.ExecHandlerFunc {
 			return builtinLs(hc, programArgs)
 		case "find":
 			return builtinFind(hc, programArgs)
-		case "base64":
-			return builtinBase64(hc, programArgs)
-		case "shasum":
-			return builtinShasum(hc, programArgs)
 		}
 
 		newCmd, ok := commandBuilders[program]
@@ -180,78 +175,3 @@ func builtinFind(hc interp.HandlerContext, args []string) error {
 	})
 }
 
-// builtinBase64 is a WASI-compatible base64 using only stdlib.
-func builtinBase64(hc interp.HandlerContext, args []string) error {
-	decode := false
-	for _, a := range args {
-		if a == "-d" || a == "--decode" {
-			decode = true
-		}
-	}
-	data, err := io.ReadAll(hc.Stdin)
-	if err != nil {
-		return err
-	}
-	if decode {
-		out, err := encbase64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
-		if err != nil {
-			return fmt.Errorf("base64: invalid input: %w", err)
-		}
-		_, err = hc.Stdout.Write(out)
-		return err
-	}
-	enc := encbase64.StdEncoding.EncodeToString(data)
-	fmt.Fprintln(hc.Stdout, enc)
-	return nil
-}
-
-// builtinShasum is a WASI-compatible shasum using only stdlib.
-// Supports -a 1 (default) and -a 256.
-func builtinShasum(hc interp.HandlerContext, args []string) error {
-	algo := "1"
-	files := []string{}
-	for i := 0; i < len(args); i++ {
-		if (args[i] == "-a" || args[i] == "--algorithm") && i+1 < len(args) {
-			i++
-			algo = args[i]
-		} else if !strings.HasPrefix(args[i], "-") {
-			files = append(files, args[i])
-		}
-	}
-
-	newHash := func() hash.Hash {
-		if algo == "256" {
-			return sha256.New()
-		}
-		return sha1.New()
-	}
-
-	hashReader := func(r io.Reader, name string) error {
-		h := newHash()
-		if _, err := io.Copy(h, r); err != nil {
-			return err
-		}
-		fmt.Fprintf(hc.Stdout, "%x  %s\n", h.Sum(nil), name)
-		return nil
-	}
-
-	if len(files) == 0 {
-		return hashReader(hc.Stdin, "-")
-	}
-	for _, f := range files {
-		if !filepath.IsAbs(f) {
-			f = filepath.Join(hc.Dir, f)
-		}
-		fh, err := os.Open(f)
-		if err != nil {
-			fmt.Fprintf(hc.Stderr, "shasum: %v\n", err)
-			continue
-		}
-		err = hashReader(fh, f)
-		fh.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
