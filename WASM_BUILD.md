@@ -34,13 +34,20 @@ Add both exports to `~/.bashrc` to persist across sessions.
 GOOS=wasip1 GOARCH=wasm go build -o gosh.wasm ./cmd/gosh
 ```
 
-Output: `gosh.wasm` (~5.4 MB, no modifications to the source needed).
+Output: `gosh.wasm` (~5.4 MB).
+
+This repo uses a Go workspace (`go.work`) to reference the local `moreinterp`
+module alongside the main module — no extra setup needed, `go build` picks it
+up automatically.
 
 ## Run
 
 ```bash
 # Inline command
 wasmtime --dir=. gosh.wasm -c 'echo hello; for i in 1 2 3; do echo "item $i"; done'
+
+# Interactive shell (type commands at the $ prompt, Ctrl-D to exit)
+wasmtime --dir=. gosh.wasm
 
 # Pipe via stdin
 echo 'echo hello from wasm' | wasmtime --dir=. gosh.wasm
@@ -51,3 +58,29 @@ wasmtime --dir=/path/to/scripts gosh.wasm /path/to/scripts/myscript.sh
 
 `--dir` grants the WASM module read/write access to that host directory.
 Use `--dir=/` to grant full filesystem access (less sandboxed).
+
+## Supported commands
+
+### Shell builtins
+`break`, `cd`, `command`, `continue`, `echo`, `eval`, `exec`, `exit`,
+`export`, `false`, `fg`, `getopts`, `hash`, `jobs`, `kill`, `let`,
+`printf`, `pwd`, `read`, `readonly`, `return`, `set`, `shift`, `source`/`.`,
+`test`/`[`, `trap`, `true`, `type`, `umask`, `unset`, `wait`
+
+### Coreutils (via [u-root](https://github.com/u-root/u-root))
+`base64`, `cat`, `chmod`, `cp`, `gzip`, `gunzip`, `gzcat`, `mkdir`,
+`mktemp`, `mv`, `rm`, `shasum`, `tar`, `touch`, `xargs`
+
+### Stdlib implementations
+`ls` (supports `-l`), `find` (supports `-name`, `-type f/d`)
+
+These two are reimplemented using Go's stdlib because u-root's versions
+depend on `pkg/ls`, which uses macOS-specific `syscall.Stat_t` fields
+that don't exist on `wasip1`.
+
+### Shell features
+- Pipes: `cmd1 | cmd2`
+- Redirects: `>`, `>>`, `<`, `2>&1`
+- Heredocs: `<< EOF`
+- Herestrings: `<<< "text"`
+- Variables, arithmetic, loops, conditionals, functions
