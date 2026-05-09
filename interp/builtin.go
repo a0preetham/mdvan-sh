@@ -1035,8 +1035,11 @@ func (r *Runner) readLine(ctx context.Context, raw bool) ([]byte, error) {
 	esc := false
 
 	stopc := make(chan struct{})
+	type deadliner interface{ SetReadDeadline(time.Time) error }
 	stop := context.AfterFunc(ctx, func() {
-		r.stdin.SetReadDeadline(time.Now())
+		if dl, ok := r.stdin.(deadliner); ok {
+			dl.SetReadDeadline(time.Now())
+		}
 		close(stopc)
 	})
 	defer func() {
@@ -1044,7 +1047,9 @@ func (r *Runner) readLine(ctx context.Context, raw bool) ([]byte, error) {
 			// The AfterFunc was started.
 			// Wait for it to complete, and reset the file's deadline.
 			<-stopc
-			r.stdin.SetReadDeadline(time.Time{})
+			if dl, ok := r.stdin.(deadliner); ok {
+				dl.SetReadDeadline(time.Time{})
+			}
 		}
 	}()
 	for {

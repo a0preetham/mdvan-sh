@@ -13,8 +13,6 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/term"
-
 	"mvdan.cc/sh/v3/interp"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -35,7 +33,11 @@ func main() {
 }
 
 func runAll() error {
-	r, err := interp.New(interp.Interactive(true), interp.StdIO(os.Stdin, os.Stdout, os.Stderr))
+	r, err := interp.New(
+		interp.Interactive(true),
+		interp.StdIO(os.Stdin, os.Stdout, os.Stderr),
+		interp.ExecHandlers(wasiCoreutils),
+	)
 	if err != nil {
 		return err
 	}
@@ -44,10 +46,7 @@ func runAll() error {
 		return run(r, strings.NewReader(*command), "")
 	}
 	if flag.NArg() == 0 {
-		if term.IsTerminal(int(os.Stdin.Fd())) {
-			return runInteractive(r, os.Stdin, os.Stdout, os.Stderr)
-		}
-		return run(r, os.Stdin, "")
+		return runInteractive(r, os.Stdin, os.Stdout, os.Stderr)
 	}
 	for _, path := range flag.Args() {
 		if err := runPath(r, path); err != nil {

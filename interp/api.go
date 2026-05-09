@@ -95,7 +95,7 @@ type Runner struct {
 	// statHandler is a function responsible for getting file stat. It must be non-nil.
 	statHandler StatHandlerFunc
 
-	stdin  *os.File // e.g. the read end of a pipe
+	stdin  io.Reader // e.g. the read end of a pipe
 	stdout io.Writer
 	stderr io.Writer
 
@@ -148,7 +148,7 @@ type Runner struct {
 	origDir    string
 	origParams []string
 	origOpts   runnerOpts
-	origStdin  *os.File
+	origStdin  io.Reader
 	origStdout io.Writer
 	origStderr io.Writer
 
@@ -542,11 +542,7 @@ func stdinFile(r io.Reader) (*os.File, error) {
 // so that cancelling the runner's context can stop a blocked standard input read.
 func StdIO(in io.Reader, out, err io.Writer) RunnerOption {
 	return func(r *Runner) error {
-		stdin, _err := stdinFile(in)
-		if _err != nil {
-			return _err
-		}
-		r.stdin = stdin
+		r.stdin = in
 		if out == nil {
 			out = io.Discard
 		}
